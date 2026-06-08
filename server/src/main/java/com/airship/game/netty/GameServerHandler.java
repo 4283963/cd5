@@ -45,7 +45,7 @@ public class GameServerHandler extends SimpleChannelInboundHandler<WebSocketFram
                     handleInput(ctx, data);
                     break;
                 case MessageProtocol.TYPE_SHOOT:
-                    handleShoot(ctx);
+                    handleShoot(ctx, data);
                     break;
                 case MessageProtocol.TYPE_RESPAWN:
                     handleRespawn(ctx);
@@ -88,11 +88,12 @@ public class GameServerHandler extends SimpleChannelInboundHandler<WebSocketFram
         gameEngine.handleInput(playerId, dx, dy, shooting, boosting);
     }
 
-    private void handleShoot(ChannelHandlerContext ctx) {
+    private void handleShoot(ChannelHandlerContext ctx, JsonObject data) {
         String playerId = playerIds.get(ctx);
         if (playerId == null) return;
 
-        gameEngine.handleShoot(playerId);
+        String localBulletId = data.has("localBulletId") ? data.get("localBulletId").getAsString() : null;
+        gameEngine.handleShoot(playerId, localBulletId);
     }
 
     private void handleRespawn(ChannelHandlerContext ctx) {

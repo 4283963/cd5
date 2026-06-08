@@ -119,10 +119,14 @@ class NetworkManager {
         });
     }
 
-    sendShoot() {
-        this.send({
+    sendShoot(localBulletId) {
+        const msg = {
             type: 'shoot'
-        });
+        };
+        if (localBulletId) {
+            msg.localBulletId = localBulletId;
+        }
+        this.send(msg);
     }
 
     getPing() {

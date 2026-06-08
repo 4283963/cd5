@@ -6,7 +6,7 @@ class Game {
         this.network = new NetworkManager();
         
         this.players = new Map();
-        this.bullets = [];
+        this.bullets = new Map();
         this.particles = [];
         this.scorePopups = [];
         this.floatingTexts = [];
@@ -25,6 +25,11 @@ class Game {
         this.inputSendRate = 60;
         
         this.particlePool = [];
+        
+        this.serverTimeOffset = 0;
+        this.lastServerTime = 0;
+        
+        this.predictedBulletIds = new Set();
         
         this.initUI();
         this.initNetwork();
@@ -53,6 +58,10 @@ class Game {
     initNetwork() {
         this.network.on('welcome', (data) => {
             this.localPlayerId = data.playerId;
+            if (data.serverTime) {
+                this.serverTimeOffset = Date.now() - data.serverTime;
+                console.log('[Game] Server time offset:', this.serverTimeOffset, 'ms');
+            }
             this.updateConnectionStatus('已连接');
         });
 
@@ -73,6 +82,14 @@ class Game {
 
         this.network.on('bulletFired', (data) => {
             this.handleBulletFired(data);
+        });
+
+        this.network.on('bulletConfirm', (data) => {
+            this.handleBulletConfirm(data);
+        });
+
+        this.network.on('timeSync', (data) => {
+            this.handleTimeSync(data);
         });
 
         this.network.on('playerHit', (data) => {
@@ -139,15 +156,10 @@ class Game {
         this.renderer.updateBackground(dt);
 
         if (this.localPlayer) {
-            const prevShooting = this.localPlayer.shootCooldown > 0;
-            
             this.localPlayer.update(dt, this.input);
 
             if (this.input.isShooting() && this.localPlayer.canShoot()) {
-                const bullet = this.localPlayer.shoot();
-                if (bullet) {
-                    this.network.sendShoot();
-                }
+                this.handleLocalShoot();
             }
         }
 
@@ -159,23 +171,42 @@ class Game {
 
         for (const [id, player] of this.players) {
             if (id !== this.localPlayerId) {
-                player.update(dt, {
-                    getMovementVector: () => ({ dx: player.vx / player.speed, dy: player.vy / player.speed }),
-                    isShooting: () => false,
-                    isBoosting: () => false
-                });
+                player.update(dt, null);
             }
         }
 
-        for (const bullet of this.bullets) {
+        for (const [id, bullet] of this.bullets) {
             bullet.update(dt);
         }
 
-        this.bullets = this.bullets.filter(b => b.active);
+        for (const [id, bullet] of this.bullets) {
+            if (!bullet.active) {
+                this.bullets.delete(id);
+                this.predictedBulletIds.delete(id);
+            }
+        }
+
         this.updateParticles(dt);
         this.updateScorePopups(dt);
         this.updateFloatingTexts(dt);
         this.updateUI();
+    }
+
+    handleLocalShoot() {
+        const bullet = this.localPlayer.shoot();
+        if (!bullet) return;
+
+        const predictedBullet = Bullet.createPredicted(
+            bullet.x, bullet.y, bullet.vx, bullet.vy,
+            this.localPlayerId, bullet.damage, this.localPlayer.color
+        );
+        
+        predictedBullet.isPredicted = true;
+        this.bullets.set(predictedBullet.id, predictedBullet);
+        this.predictedBulletIds.add(predictedBullet.id);
+
+        this.network.sendShoot(predictedBullet.id);
+        this.createMuzzleFlash(bullet.x, bullet.y, this.localPlayer.color);
     }
 
     sendInputToServer() {
@@ -191,11 +222,20 @@ class Game {
     }
 
     handleGameState(data) {
+        if (data.serverTime) {
+            this.lastServerTime = data.serverTime;
+        }
+
         for (const playerData of data.players) {
             let player = this.players.get(playerData.id);
             
             if (!player) {
                 player = Player.fromData(playerData);
+                if (playerData.id === this.localPlayerId) {
+                    player.isLocal = true;
+                    player.x = playerData.x;
+                    player.y = playerData.y;
+                }
                 this.players.set(playerData.id, player);
             } else {
                 player.syncFromData(playerData);
@@ -203,6 +243,7 @@ class Game {
 
             if (playerData.id === this.localPlayerId) {
                 this.localPlayer = player;
+                player.isLocal = true;
                 
                 if (!player.active && this.gameOverScreen.style.display === 'none') {
                     this.showGameOver(player);
@@ -212,13 +253,93 @@ class Game {
             }
         }
 
+        if (data.bullets) {
+            this.syncBulletsFromSnapshot(data.bullets);
+        }
+
         this.playersOnlineEl.textContent = `在线: ${data.players.length}`;
     }
 
+    syncBulletsFromSnapshot(serverBullets) {
+        const serverBulletIds = new Set();
+
+        for (const bulletData of serverBullets) {
+            serverBulletIds.add(bulletData.id);
+            
+            let bullet = this.bullets.get(bulletData.id);
+            
+            if (bullet) {
+                if (bullet.isPredicted) {
+                    bullet.setServerData(bulletData);
+                    this.predictedBulletIds.delete(bulletData.id);
+                } else {
+                    bullet.setTarget(
+                        bulletData.x,
+                        bulletData.y,
+                        bulletData.vx,
+                        bulletData.vy
+                    );
+                    if (bulletData.color) bullet.color = bulletData.color;
+                    if (bulletData.damage) bullet.damage = bulletData.damage;
+                }
+            } else {
+                const newBullet = Bullet.fromData(bulletData);
+                newBullet.hasTarget = true;
+                newBullet.targetX = bulletData.x;
+                newBullet.targetY = bulletData.y;
+                newBullet.targetVx = bulletData.vx;
+                newBullet.targetVy = bulletData.vy;
+                newBullet.lerpFactor = 0.25;
+                this.bullets.set(bulletData.id, newBullet);
+            }
+        }
+
+        for (const [id, bullet] of this.bullets) {
+            if (!serverBulletIds.has(id) && !bullet.isPredicted) {
+                bullet.active = false;
+            }
+        }
+    }
+
     handleBulletFired(data) {
-        const bullet = Bullet.fromData(data.bullet);
-        this.bullets.push(bullet);
+        const bulletData = data.bullet;
+        if (!bulletData || !bulletData.id) return;
+
+        if (this.bullets.has(bulletData.id)) return;
+
+        const bullet = Bullet.fromData(bulletData);
+        bullet.hasTarget = false;
+        this.bullets.set(bulletData.id, bullet);
         this.createMuzzleFlash(bullet.x, bullet.y, bullet.color);
+    }
+
+    handleBulletConfirm(data) {
+        const localId = data.localBulletId;
+        const serverId = data.serverBulletId;
+        
+        if (!localId || !serverId) return;
+        
+        const predictedBullet = this.bullets.get(localId);
+        if (predictedBullet && predictedBullet.isPredicted) {
+            predictedBullet.id = serverId;
+            predictedBullet.isPredicted = false;
+            predictedBullet.hasTarget = true;
+            predictedBullet.targetX = data.x;
+            predictedBullet.targetY = data.y;
+            predictedBullet.targetVx = predictedBullet.vx;
+            predictedBullet.targetVy = predictedBullet.vy;
+            predictedBullet.lerpFactor = 0.15;
+            
+            this.bullets.delete(localId);
+            this.bullets.set(serverId, predictedBullet);
+            this.predictedBulletIds.delete(localId);
+        }
+    }
+
+    handleTimeSync(data) {
+        if (data.serverTime) {
+            this.serverTimeOffset = Date.now() - data.serverTime;
+        }
     }
 
     handlePlayerHit(data) {
@@ -277,7 +398,7 @@ class Game {
 
         this.renderer.drawParticles(this.particles);
 
-        for (const bullet of this.bullets) {
+        for (const bullet of this.bullets.values()) {
             bullet.draw(this.renderer.ctx);
         }
 

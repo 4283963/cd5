@@ -151,7 +151,7 @@ public class GameRoom {
 
         broadcast(MessageProtocol.createPlayerJoined(playerId, playerName, player.getScore()));
 
-        sendToPlayer(playerId, MessageProtocol.createWelcome(playerId, playerName));
+        sendToPlayer(playerId, MessageProtocol.createWelcome(playerId, playerName, System.currentTimeMillis()));
 
         return player;
     }
@@ -184,6 +184,10 @@ public class GameRoom {
     }
 
     public void handleShoot(String playerId) {
+        handleShoot(playerId, null);
+    }
+
+    public void handleShoot(String playerId, String localBulletId) {
         Player player = players.get(playerId);
         if (player != null && player.canShoot() && player.isActive()) {
             Bullet bullet = player.shoot();
@@ -192,6 +196,14 @@ public class GameRoom {
                     bullets.add(bullet);
                 }
                 broadcastBulletFired(bullet);
+
+                if (localBulletId != null && !localBulletId.isEmpty()) {
+                    sendToPlayer(playerId, MessageProtocol.createBulletConfirm(
+                            localBulletId, bullet.getId(),
+                            bullet.getX(), bullet.getY(),
+                            System.currentTimeMillis()
+                    ));
+                }
             }
         }
     }
@@ -206,10 +218,16 @@ public class GameRoom {
     private void broadcastGameState() {
         if (players.isEmpty()) return;
 
+        long serverTime = System.currentTimeMillis();
         List<Player> playerList = new ArrayList<>(players.values());
+        List<Bullet> bulletSnapshot;
+        synchronized (bullets) {
+            bulletSnapshot = new ArrayList<>(bullets);
+        }
         
         StringBuilder sb = new StringBuilder();
-        sb.append("{\"type\":\"gameState\",\"players\":[");
+        sb.append("{\"type\":\"gameState\",\"serverTime\":").append(serverTime);
+        sb.append(",\"players\":[");
         
         for (int i = 0; i < playerList.size(); i++) {
             Player p = playerList.get(i);
@@ -223,6 +241,19 @@ public class GameRoom {
                     p.getColor(), p.getHp(), p.getMaxHp(),
                     p.getScore(), p.getKills(), p.getDeaths(),
                     p.isActive(), p.getFacing(), p.isInvincible()
+            ));
+        }
+        
+        sb.append("],\"bullets\":[");
+        
+        for (int i = 0; i < bulletSnapshot.size(); i++) {
+            Bullet b = bulletSnapshot.get(i);
+            if (i > 0) sb.append(",");
+            sb.append(String.format(
+                    "{\"id\":\"%s\",\"x\":%.2f,\"y\":%.2f,\"vx\":%.2f,\"vy\":%.2f," +
+                            "\"ownerId\":\"%s\",\"damage\":%d,\"color\":\"%s\",\"radius\":%.1f}",
+                    b.getId(), b.getX(), b.getY(), b.getVx(), b.getVy(),
+                    b.getOwnerId(), b.getDamage(), b.getColor(), b.getRadius()
             ));
         }
         
@@ -256,9 +287,11 @@ public class GameRoom {
     }
 
     private void broadcastBulletFired(Bullet bullet) {
+        long serverTime = System.currentTimeMillis();
         String msg = String.format(
-                "{\"type\":\"bulletFired\",\"bullet\":{\"x\":%.2f,\"y\":%.2f,\"vx\":%.2f,\"vy\":%.2f," +
+                "{\"type\":\"bulletFired\",\"serverTime\":%d,\"bullet\":{\"id\":\"%s\",\"x\":%.2f,\"y\":%.2f,\"vx\":%.2f,\"vy\":%.2f," +
                         "\"ownerId\":\"%s\",\"damage\":%d,\"color\":\"%s\",\"radius\":%.1f}}",
+                serverTime, bullet.getId(),
                 bullet.getX(), bullet.getY(), bullet.getVx(), bullet.getVy(),
                 bullet.getOwnerId(), bullet.getDamage(), bullet.getColor(), bullet.getRadius()
         );

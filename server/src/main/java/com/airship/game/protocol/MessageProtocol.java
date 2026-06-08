@@ -10,6 +10,7 @@ public class MessageProtocol {
     public static final String TYPE_PLAYER_LEFT = "playerLeft";
     public static final String TYPE_GAME_STATE = "gameState";
     public static final String TYPE_BULLET_FIRED = "bulletFired";
+    public static final String TYPE_BULLET_CONFIRM = "bulletConfirm";
     public static final String TYPE_PLAYER_HIT = "playerHit";
     public static final String TYPE_PLAYER_KILLED = "playerKilled";
     public static final String TYPE_LEADERBOARD = "leaderboard";
@@ -19,6 +20,7 @@ public class MessageProtocol {
     public static final String TYPE_SHOOT = "shoot";
     public static final String TYPE_JOIN = "join";
     public static final String TYPE_RESPAWN = "respawn";
+    public static final String TYPE_TIME_SYNC = "timeSync";
 
     private static final Gson gson = new Gson();
 
@@ -30,11 +32,33 @@ public class MessageProtocol {
         return gson.toJson(obj);
     }
 
-    public static String createWelcome(String playerId, String playerName) {
+    public static String createWelcome(String playerId, String playerName, long serverTime) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", TYPE_WELCOME);
         msg.addProperty("playerId", playerId);
         msg.addProperty("playerName", playerName);
+        msg.addProperty("serverTime", serverTime);
+        msg.addProperty("tickRate", 60);
+        return msg.toString();
+    }
+
+    public static String createTimeSync(long serverTime, int sequence) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", TYPE_TIME_SYNC);
+        msg.addProperty("serverTime", serverTime);
+        msg.addProperty("sequence", sequence);
+        return msg.toString();
+    }
+
+    public static String createBulletConfirm(String localBulletId, String serverBulletId,
+                                             float x, float y, long serverTime) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", TYPE_BULLET_CONFIRM);
+        msg.addProperty("localBulletId", localBulletId);
+        msg.addProperty("serverBulletId", serverBulletId);
+        msg.addProperty("x", x);
+        msg.addProperty("y", y);
+        msg.addProperty("serverTime", serverTime);
         return msg.toString();
     }
 

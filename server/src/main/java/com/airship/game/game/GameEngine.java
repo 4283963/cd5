@@ -82,9 +82,13 @@ public class GameEngine {
     }
 
     public void handleShoot(String playerId) {
+        handleShoot(playerId, null);
+    }
+
+    public void handleShoot(String playerId, String localBulletId) {
         GameRoom room = getPlayerRoom(playerId);
         if (room != null) {
-            room.handleShoot(playerId);
+            room.handleShoot(playerId, localBulletId);
         }
     }
 

@@ -28,6 +28,13 @@ class Player {
         this.engineGlow = 0;
         this.invincible = false;
         this.invincibleTime = 0;
+        this.isLocal = false;
+        this.targetX = x;
+        this.targetY = y;
+        this.targetVx = 0;
+        this.targetVy = 0;
+        this.hasTarget = false;
+        this.lerpFactor = 0.12;
     }
 
     update(deltaTime, input) {
@@ -46,21 +53,36 @@ class Player {
             }
         }
 
-        const movement = input.getMovementVector();
-        const boosting = input.isBoosting();
-        const currentSpeed = boosting ? this.boostSpeed : this.speed;
+        if (this.isLocal) {
+            const movement = input.getMovementVector();
+            const boosting = input.isBoosting();
+            const currentSpeed = boosting ? this.boostSpeed : this.speed;
 
-        this.vx = movement.dx * currentSpeed;
-        this.vy = movement.dy * currentSpeed;
+            this.vx = movement.dx * currentSpeed;
+            this.vy = movement.dy * currentSpeed;
 
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
+            this.x += this.vx * deltaTime;
+            this.y += this.vy * deltaTime;
 
-        if (movement.dx > 0) this.facing = 1;
-        else if (movement.dx < 0) this.facing = -1;
+            if (movement.dx > 0) this.facing = 1;
+            else if (movement.dx < 0) this.facing = -1;
 
-        this.x = Math.max(0, Math.min(960 - this.width, this.x));
-        this.y = Math.max(0, Math.min(640 - this.height, this.y));
+            this.x = Math.max(0, Math.min(960 - this.width, this.x));
+            this.y = Math.max(0, Math.min(640 - this.height, this.y));
+        } else {
+            if (this.hasTarget) {
+                this.x += (this.targetX - this.x) * this.lerpFactor;
+                this.y += (this.targetY - this.y) * this.lerpFactor;
+                this.vx += (this.targetVx - this.vx) * this.lerpFactor;
+                this.vy += (this.targetVy - this.vy) * this.lerpFactor;
+            } else {
+                this.x += this.vx * deltaTime;
+                this.y += this.vy * deltaTime;
+            }
+
+            this.x = Math.max(0, Math.min(960 - this.width, this.x));
+            this.y = Math.max(0, Math.min(640 - this.height, this.y));
+        }
 
         if (this.shootCooldown > 0) {
             this.shootCooldown -= deltaTime;
@@ -321,16 +343,30 @@ class Player {
     }
 
     syncFromData(data) {
-        this.x = data.x;
-        this.y = data.y;
-        this.vx = data.vx;
-        this.vy = data.vy;
-        this.hp = data.hp;
-        this.score = data.score;
-        this.kills = data.kills;
-        this.deaths = data.deaths;
-        this.active = data.active;
-        this.facing = data.facing;
-        this.invincible = data.invincible;
+        if (this.isLocal) {
+            this.hp = data.hp;
+            this.score = data.score;
+            this.kills = data.kills;
+            this.deaths = data.deaths;
+            this.active = data.active;
+            this.invincible = data.invincible;
+            
+            if (data.vx !== undefined) this.vx = data.vx;
+            if (data.vy !== undefined) this.vy = data.vy;
+        } else {
+            this.targetX = data.x;
+            this.targetY = data.y;
+            this.targetVx = data.vx;
+            this.targetVy = data.vy;
+            this.hasTarget = true;
+            
+            this.hp = data.hp;
+            this.score = data.score;
+            this.kills = data.kills;
+            this.deaths = data.deaths;
+            this.active = data.active;
+            this.facing = data.facing;
+            this.invincible = data.invincible;
+        }
     }
 }
