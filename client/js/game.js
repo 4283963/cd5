@@ -7,6 +7,7 @@ class Game {
         
         this.players = new Map();
         this.bullets = new Map();
+        this.powerUps = new Map();
         this.particles = [];
         this.scorePopups = [];
         this.floatingTexts = [];
@@ -30,6 +31,8 @@ class Game {
         this.lastServerTime = 0;
         
         this.predictedBulletIds = new Set();
+        
+        this.lastHpPercent = 1.0;
         
         this.initUI();
         this.initNetwork();
@@ -90,6 +93,14 @@ class Game {
 
         this.network.on('timeSync', (data) => {
             this.handleTimeSync(data);
+        });
+
+        this.network.on('powerUpSpawned', (data) => {
+            this.handlePowerUpSpawned(data);
+        });
+
+        this.network.on('powerUpPicked', (data) => {
+            this.handlePowerUpPicked(data);
         });
 
         this.network.on('playerHit', (data) => {
@@ -186,6 +197,13 @@ class Game {
             }
         }
 
+        for (const [id, powerUp] of this.powerUps) {
+            powerUp.update(dt);
+            if (!powerUp.active) {
+                this.powerUps.delete(id);
+            }
+        }
+
         this.updateParticles(dt);
         this.updateScorePopups(dt);
         this.updateFloatingTexts(dt);
@@ -193,20 +211,25 @@ class Game {
     }
 
     handleLocalShoot() {
-        const bullet = this.localPlayer.shoot();
-        if (!bullet) return;
+        const bullets = this.localPlayer.shoot();
+        if (!bullets || bullets.length === 0) return;
 
-        const predictedBullet = Bullet.createPredicted(
-            bullet.x, bullet.y, bullet.vx, bullet.vy,
-            this.localPlayerId, bullet.damage, this.localPlayer.color
-        );
-        
-        predictedBullet.isPredicted = true;
-        this.bullets.set(predictedBullet.id, predictedBullet);
-        this.predictedBulletIds.add(predictedBullet.id);
+        for (const bullet of bullets) {
+            const predictedBullet = Bullet.createPredicted(
+                bullet.x, bullet.y, bullet.vx, bullet.vy,
+                this.localPlayerId, bullet.damage, bullet.color
+            );
+            predictedBullet.radius = bullet.radius;
+            predictedBullet.isPredicted = true;
+            this.bullets.set(predictedBullet.id, predictedBullet);
+            this.predictedBulletIds.add(predictedBullet.id);
+            
+            this.createMuzzleFlash(bullet.x, bullet.y, bullet.color);
+        }
 
-        this.network.sendShoot(predictedBullet.id);
-        this.createMuzzleFlash(bullet.x, bullet.y, this.localPlayer.color);
+        if (bullets.length > 0) {
+            this.network.sendShoot(bullets[0].id);
+        }
     }
 
     sendInputToServer() {
@@ -257,7 +280,32 @@ class Game {
             this.syncBulletsFromSnapshot(data.bullets);
         }
 
+        if (data.powerUps) {
+            this.syncPowerUpsFromSnapshot(data.powerUps);
+        }
+
         this.playersOnlineEl.textContent = `在线: ${data.players.length}`;
+    }
+
+    syncPowerUpsFromSnapshot(serverPowerUps) {
+        const serverIds = new Set();
+
+        for (const puData of serverPowerUps) {
+            serverIds.add(puData.id);
+            
+            let powerUp = this.powerUps.get(puData.id);
+            if (!powerUp) {
+                powerUp = PowerUp.fromData(puData);
+                this.powerUps.set(puData.id, powerUp);
+                this.createSpawnEffect(powerUp.x + powerUp.width / 2, powerUp.y + powerUp.height / 2);
+            }
+        }
+
+        for (const [id, powerUp] of this.powerUps) {
+            if (!serverIds.has(id)) {
+                powerUp.active = false;
+            }
+        }
     }
 
     syncBulletsFromSnapshot(serverBullets) {
@@ -342,6 +390,72 @@ class Game {
         }
     }
 
+    handlePowerUpSpawned(data) {
+        const powerUp = PowerUp.fromData(data.powerUp);
+        this.powerUps.set(powerUp.id, powerUp);
+        this.createSpawnEffect(powerUp.x + powerUp.width / 2, powerUp.y + powerUp.height / 2);
+    }
+
+    handlePowerUpPicked(data) {
+        const powerUp = this.powerUps.get(data.powerUpId);
+        const player = this.players.get(data.playerId);
+        
+        if (powerUp) {
+            this.createPickupEffect(
+                powerUp.x + powerUp.width / 2, 
+                powerUp.y + powerUp.height / 2,
+                PowerUp.COLORS[data.type] || '#ffffff'
+            );
+            powerUp.active = false;
+        }
+
+        if (player) {
+            player.setPowerUp(data.type, data.duration);
+            
+            if (data.playerId === this.localPlayerId) {
+                const name = PowerUp.NAMES[data.type] || '道具';
+                this.addFloatingText(`获得 ${name}!`, 480, 200, 
+                    PowerUp.COLORS[data.type] || '#ffffff', 18);
+            }
+        }
+    }
+
+    createSpawnEffect(x, y) {
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const speed = 50 + Math.random() * 50;
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: 3 + Math.random() * 3,
+                color: '#ffff88',
+                alpha: 1,
+                decay: 1.5
+            });
+        }
+    }
+
+    createPickupEffect(x, y, color) {
+        for (let i = 0; i < 16; i++) {
+            const angle = (i / 16) * Math.PI * 2;
+            const speed = 80 + Math.random() * 60;
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: 4 + Math.random() * 4,
+                color: color,
+                alpha: 1,
+                decay: 1.2
+            });
+        }
+        
+        this.addScorePopup('+道具', x, y - 20);
+    }
+
     handlePlayerHit(data) {
         const player = this.players.get(data.playerId);
         if (player) {
@@ -400,6 +514,10 @@ class Game {
 
         for (const bullet of this.bullets.values()) {
             bullet.draw(this.renderer.ctx);
+        }
+
+        for (const powerUp of this.powerUps.values()) {
+            powerUp.draw(this.renderer.ctx);
         }
 
         const playersList = Array.from(this.players.values());

@@ -69,4 +69,8 @@ public class Bullet {
     public void setActive(boolean active) {
         this.active = active;
     }
+
+    public void setRadius(float radius) {
+        this.radius = radius;
+    }
 }

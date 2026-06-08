@@ -1,5 +1,8 @@
 package com.airship.game.game;
 
+import java.util.List;
+import java.util.ArrayList;
+
 public class Player {
 
     private String id;
@@ -33,6 +36,11 @@ public class Player {
     private volatile boolean shooting = false;
     private volatile float inputDx = 0;
     private volatile float inputDy = 0;
+
+    private String powerUpType = null;
+    private volatile float powerUpTime = 0;
+    private float powerUpDuration = 10000;
+    private int lastHp = 100;
 
     private static final String[] COLORS = {
             "#44aaff", "#ff6644", "#44ff66", "#ff44aa",
@@ -68,7 +76,21 @@ public class Player {
             }
         }
 
-        float currentSpeed = boosting ? boostSpeed : speed;
+        if (powerUpType != null) {
+            powerUpTime -= deltaTime * 1000;
+            if (powerUpTime <= 0) {
+                clearPowerUp();
+            }
+        }
+
+        float baseSpeed = speed;
+        float baseBoostSpeed = boostSpeed;
+        if ("power_core".equals(powerUpType)) {
+            baseSpeed *= 1.5f;
+            baseBoostSpeed *= 1.4f;
+        }
+
+        float currentSpeed = boosting ? baseBoostSpeed : baseSpeed;
         vx = inputDx * currentSpeed;
         vy = inputDy * currentSpeed;
 
@@ -83,38 +105,90 @@ public class Player {
     }
 
     public boolean canShoot() {
-        return active && System.currentTimeMillis() - lastShotTime >= shootCooldown;
+        if (!active) return false;
+        long actualCooldown = "power_core".equals(powerUpType) ? (long)(shootCooldown * 0.6f) : shootCooldown;
+        return System.currentTimeMillis() - lastShotTime >= actualCooldown;
     }
 
-    public Bullet shoot() {
-        if (!canShoot()) return null;
+    public List<Bullet> shoot() {
+        if (!canShoot()) return new ArrayList<>();
 
         lastShotTime = System.currentTimeMillis();
 
         float bulletX = x + width / 2 + facing * width / 2;
         float bulletY = y + height / 2;
 
-        Bullet bullet = new Bullet(
-                bulletX, bulletY,
-                facing * bulletSpeed, 0,
-                id,
-                bulletDamage,
-                color
-        );
+        int actualDamage = "cannon_part".equals(powerUpType) ? bulletDamage * 3 : bulletDamage;
+        float actualSpeed = "power_core".equals(powerUpType) ? bulletSpeed * 1.3f : bulletSpeed;
+        String bulletColor = "cannon_part".equals(powerUpType) ? "#ff2244" :
+                            "power_core".equals(powerUpType) ? "#ffcc00" : color;
+        float bulletRadius = "cannon_part".equals(powerUpType) ? 8 : 4;
 
-        return bullet;
+        List<Bullet> bullets = new ArrayList<>();
+
+        if ("power_core".equals(powerUpType)) {
+            int[] angles = {-15, 0, 15};
+            for (int angleDeg : angles) {
+                double angle = Math.toRadians(angleDeg);
+                float vx = (float)Math.cos(angle) * actualSpeed * facing;
+                float vy = (float)Math.sin(angle) * actualSpeed;
+                Bullet bullet = new Bullet(bulletX, bulletY, vx, vy, id, actualDamage, bulletColor);
+                bullet.setRadius(bulletRadius);
+                bullets.add(bullet);
+            }
+        } else if ("cannon_part".equals(powerUpType)) {
+            Bullet bullet = new Bullet(
+                    bulletX + facing * 4, bulletY,
+                    facing * actualSpeed * 0.8f, 0,
+                    id, actualDamage, bulletColor
+            );
+            bullet.setRadius(bulletRadius);
+            bullets.add(bullet);
+        } else {
+            Bullet bullet = new Bullet(
+                    bulletX, bulletY,
+                    facing * actualSpeed, 0,
+                    id, actualDamage, bulletColor
+            );
+            bullet.setRadius(bulletRadius);
+            bullets.add(bullet);
+        }
+
+        return bullets;
     }
 
     public boolean takeDamage(int damage, String attackerId) {
         if (!active || invincible) return false;
 
+        lastHp = hp;
         hp -= damage;
+        
         if (hp <= 0) {
             hp = 0;
             die();
             return true;
         }
         return false;
+    }
+
+    public boolean checkShouldDropPowerUp() {
+        int halfHp = maxHp / 2;
+        return lastHp > halfHp && hp <= halfHp && hp > 0;
+    }
+
+    public void setPowerUp(String type, float duration) {
+        this.powerUpType = type;
+        this.powerUpTime = duration;
+        this.powerUpDuration = duration;
+    }
+
+    public void clearPowerUp() {
+        this.powerUpType = null;
+        this.powerUpTime = 0;
+    }
+
+    public boolean hasPowerUp() {
+        return powerUpType != null && powerUpTime > 0;
     }
 
     private void die() {
@@ -127,7 +201,9 @@ public class Player {
     public void respawn() {
         active = true;
         hp = maxHp;
+        lastHp = maxHp;
         deadTime = 0;
+        clearPowerUp();
         x = (float) (Math.random() * (960 - width));
         y = (float) (Math.random() * (640 - height));
         invincible = true;
@@ -158,6 +234,9 @@ public class Player {
     public boolean isInvincible() { return invincible; }
     public boolean isBoosting() { return boosting; }
     public boolean isShooting() { return shooting; }
+    public String getPowerUpType() { return powerUpType; }
+    public float getPowerUpTime() { return powerUpTime; }
+    public float getPowerUpDuration() { return powerUpDuration; }
 
     public void setX(float x) { this.x = x; }
     public void setY(float y) { this.y = y; }

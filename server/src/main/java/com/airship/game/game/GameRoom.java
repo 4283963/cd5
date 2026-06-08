@@ -19,12 +19,14 @@ public class GameRoom {
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private Map<String, Channel> playerChannels = new ConcurrentHashMap<>();
     private List<Bullet> bullets = new ArrayList<>();
+    private List<PowerUp> powerUps = new ArrayList<>();
     private ScheduledExecutorService gameLoop;
     private ScheduledExecutorService stateBroadcaster;
     private volatile boolean running = false;
     private int maxPlayers = 8;
     private float tickRate = 60;
     private float broadcastRate = 30;
+    private static final float POWER_UP_DURATION = 10000;
 
     private DatabaseManager db;
 
@@ -88,12 +90,14 @@ public class GameRoom {
             player.update(deltaTime);
 
             if (player.isShooting() && player.canShoot()) {
-                Bullet bullet = player.shoot();
-                if (bullet != null) {
+                List<Bullet> newBullets = player.shoot();
+                if (newBullets != null && !newBullets.isEmpty()) {
                     synchronized (bullets) {
-                        bullets.add(bullet);
+                        bullets.addAll(newBullets);
                     }
-                    broadcastBulletFired(bullet);
+                    for (Bullet bullet : newBullets) {
+                        broadcastBulletFired(bullet);
+                    }
                 }
             }
         }
@@ -103,6 +107,13 @@ public class GameRoom {
                 bullet.update(deltaTime);
             }
             bullets.removeIf(b -> !b.isActive());
+        }
+
+        synchronized (powerUps) {
+            for (PowerUp powerUp : powerUps) {
+                powerUp.update(deltaTime);
+            }
+            powerUps.removeIf(p -> !p.isActive());
         }
 
         checkCollisions();
@@ -124,6 +135,10 @@ public class GameRoom {
 
                         broadcastPlayerHit(player, bullet.getOwnerId(), bullet.getDamage());
 
+                        if (!died && player.checkShouldDropPowerUp()) {
+                            spawnPowerUp(player);
+                        }
+
                         if (died) {
                             if (shooter != null) {
                                 shooter.addKill();
@@ -135,6 +150,38 @@ public class GameRoom {
                 }
             }
         }
+
+        synchronized (powerUps) {
+            for (PowerUp powerUp : powerUps) {
+                if (!powerUp.isActive()) continue;
+
+                for (Player player : players.values()) {
+                    if (!player.isActive()) continue;
+
+                    if (powerUp.checkCollision(player)) {
+                        powerUp.setActive(false);
+                        player.setPowerUp(powerUp.getType(), POWER_UP_DURATION);
+                        broadcastPowerUpPicked(powerUp, player);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private void spawnPowerUp(Player player) {
+        String type = PowerUp.getRandomType();
+        float px = player.getX() + player.getWidth() / 2f - 12;
+        float py = player.getY() + player.getHeight() / 2f - 12;
+
+        px = Math.max(20, Math.min(940 - 24, px));
+        py = Math.max(20, Math.min(620 - 24, py));
+
+        PowerUp powerUp = new PowerUp(type, px, py, player.getId());
+        synchronized (powerUps) {
+            powerUps.add(powerUp);
+        }
+        broadcastPowerUpSpawned(powerUp);
     }
 
     public Player addPlayer(String playerId, String playerName, Channel channel) {
@@ -190,17 +237,21 @@ public class GameRoom {
     public void handleShoot(String playerId, String localBulletId) {
         Player player = players.get(playerId);
         if (player != null && player.canShoot() && player.isActive()) {
-            Bullet bullet = player.shoot();
-            if (bullet != null) {
+            List<Bullet> newBullets = player.shoot();
+            if (newBullets != null && !newBullets.isEmpty()) {
                 synchronized (bullets) {
-                    bullets.add(bullet);
+                    bullets.addAll(newBullets);
                 }
-                broadcastBulletFired(bullet);
+                
+                for (Bullet bullet : newBullets) {
+                    broadcastBulletFired(bullet);
+                }
 
-                if (localBulletId != null && !localBulletId.isEmpty()) {
+                if (localBulletId != null && !localBulletId.isEmpty() && !newBullets.isEmpty()) {
+                    Bullet firstBullet = newBullets.get(0);
                     sendToPlayer(playerId, MessageProtocol.createBulletConfirm(
-                            localBulletId, bullet.getId(),
-                            bullet.getX(), bullet.getY(),
+                            localBulletId, firstBullet.getId(),
+                            firstBullet.getX(), firstBullet.getY(),
                             System.currentTimeMillis()
                     ));
                 }
@@ -224,6 +275,10 @@ public class GameRoom {
         synchronized (bullets) {
             bulletSnapshot = new ArrayList<>(bullets);
         }
+        List<PowerUp> powerUpSnapshot;
+        synchronized (powerUps) {
+            powerUpSnapshot = new ArrayList<>(powerUps);
+        }
         
         StringBuilder sb = new StringBuilder();
         sb.append("{\"type\":\"gameState\",\"serverTime\":").append(serverTime);
@@ -235,13 +290,22 @@ public class GameRoom {
             sb.append(String.format(
                     "{\"id\":\"%s\",\"name\":\"%s\",\"x\":%.2f,\"y\":%.2f,\"vx\":%.2f,\"vy\":%.2f," +
                             "\"color\":\"%s\",\"hp\":%d,\"maxHp\":%d,\"score\":%d,\"kills\":%d,\"deaths\":%d," +
-                            "\"active\":%b,\"facing\":%d,\"invincible\":%b}",
+                            "\"active\":%b,\"facing\":%d,\"invincible\":%b",
                     p.getId(), escapeJson(p.getName()),
                     p.getX(), p.getY(), p.getVx(), p.getVy(),
                     p.getColor(), p.getHp(), p.getMaxHp(),
                     p.getScore(), p.getKills(), p.getDeaths(),
                     p.isActive(), p.getFacing(), p.isInvincible()
             ));
+
+            if (p.getPowerUpType() != null) {
+                sb.append(String.format(
+                        ",\"powerUpType\":\"%s\",\"powerUpTime\":%.2f,\"powerUpDuration\":%.2f",
+                        p.getPowerUpType(), p.getPowerUpTime(), p.getPowerUpDuration()
+                ));
+            }
+
+            sb.append("}");
         }
         
         sb.append("],\"bullets\":[");
@@ -257,6 +321,19 @@ public class GameRoom {
             ));
         }
         
+        sb.append("],\"powerUps\":[");
+
+        for (int i = 0; i < powerUpSnapshot.size(); i++) {
+            PowerUp pu = powerUpSnapshot.get(i);
+            if (i > 0) sb.append(",");
+            sb.append(String.format(
+                    "{\"id\":\"%s\",\"type\":\"%s\",\"x\":%.2f,\"y\":%.2f," +
+                            "\"width\":%.0f,\"height\":%.0f,\"age\":%.2f,\"maxAge\":%.0f}",
+                    pu.getId(), pu.getType(), pu.getX(), pu.getY(),
+                    pu.getWidth(), pu.getHeight(), pu.getAge(), pu.getMaxAge()
+            ));
+        }
+
         sb.append("]}");
 
         broadcast(sb.toString());
@@ -314,6 +391,30 @@ public class GameRoom {
         String msg = MessageProtocol.createPlayerKilled(
                 victim.getId(), victim.getName(), victim.getDeaths(),
                 killerId, killerName, killerKills, killerScore
+        );
+        broadcast(msg);
+    }
+
+    private void broadcastPowerUpSpawned(PowerUp powerUp) {
+        String msg = String.format(
+                "{\"type\":\"powerUpSpawned\",\"powerUp\":{\"id\":\"%s\",\"type\":\"%s\"," +
+                        "\"x\":%.2f,\"y\":%.2f,\"width\":%.0f,\"height\":%.0f,\"maxAge\":%.0f}," +
+                        "\"droppedBy\":\"%s\"}",
+                powerUp.getId(), powerUp.getType(),
+                powerUp.getX(), powerUp.getY(),
+                powerUp.getWidth(), powerUp.getHeight(),
+                powerUp.getMaxAge(),
+                powerUp.getDroppedBy() != null ? powerUp.getDroppedBy() : ""
+        );
+        broadcast(msg);
+    }
+
+    private void broadcastPowerUpPicked(PowerUp powerUp, Player player) {
+        String msg = String.format(
+                "{\"type\":\"powerUpPicked\",\"powerUpId\":\"%s\",\"playerId\":\"%s\"," +
+                        "\"type\":\"%s\",\"duration\":%.2f}",
+                powerUp.getId(), player.getId(),
+                powerUp.getType(), POWER_UP_DURATION
         );
         broadcast(msg);
     }
