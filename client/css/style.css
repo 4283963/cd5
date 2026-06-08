@@ -1,0 +1,218 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+@font-face {
+    font-family: 'PixelFont';
+    src: local('Courier New');
+}
+
+body {
+    background: #0a0a1a;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-image: 
+        radial-gradient(2px 2px at 20px 30px, #ffffff22, transparent),
+        radial-gradient(2px 2px at 40px 70px, #ffffff15, transparent),
+        radial-gradient(1px 1px at 90px 40px, #ffffff20, transparent),
+        radial-gradient(1px 1px at 130px 80px, #ffffff10, transparent),
+        radial-gradient(2px 2px at 160px 120px, #ffffff18, transparent);
+    background-size: 200px 200px;
+}
+
+.game-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.game-header {
+    text-align: center;
+    width: 960px;
+}
+
+.game-header h1 {
+    font-size: 28px;
+    color: #ffcc00;
+    text-shadow: 3px 3px 0 #cc6600, 6px 6px 0 #663300;
+    letter-spacing: 4px;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.stats-bar {
+    display: flex;
+    justify-content: space-between;
+    background: #1a1a3a;
+    border: 3px solid #4a4a8a;
+    padding: 8px 16px;
+    font-size: 14px;
+    color: #aaccff;
+}
+
+.stats-bar input {
+    background: #0a0a2a;
+    border: 2px solid #4a4a8a;
+    color: #ffcc00;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 2px 6px;
+    width: 100px;
+}
+
+#gameCanvas {
+    border: 4px solid #4a4a8a;
+    background: #0f0f2a;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    box-shadow: 0 0 30px rgba(100, 150, 255, 0.3);
+}
+
+.game-footer {
+    width: 960px;
+    display: flex;
+    justify-content: space-between;
+    background: #1a1a3a;
+    border: 3px solid #4a4a8a;
+    padding: 8px 16px;
+}
+
+.controls-info {
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+    color: #8888aa;
+}
+
+.status {
+    font-size: 12px;
+    color: #88cc88;
+}
+
+.leaderboard {
+    position: absolute;
+    top: 80px;
+    right: -200px;
+    width: 180px;
+    background: #1a1a3a;
+    border: 3px solid #4a4a8a;
+    padding: 12px;
+    font-size: 12px;
+}
+
+.leaderboard h3 {
+    color: #ffcc00;
+    text-align: center;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.leaderboard ol {
+    list-style: none;
+    counter-reset: rank;
+}
+
+.leaderboard li {
+    counter-increment: rank;
+    padding: 4px 0;
+    border-bottom: 1px solid #2a2a5a;
+    display: flex;
+    justify-content: space-between;
+}
+
+.leaderboard li::before {
+    content: counter(rank) ". ";
+    color: #ffcc00;
+    font-weight: bold;
+}
+
+.leaderboard li:nth-child(1)::before { color: #ffd700; }
+.leaderboard li:nth-child(2)::before { color: #c0c0c0; }
+.leaderboard li:nth-child(3)::before { color: #cd7f32; }
+
+.start-screen, .game-over-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 10, 26, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+
+.start-content, .game-over-content {
+    text-align: center;
+    background: #1a1a3a;
+    border: 4px solid #ffcc00;
+    padding: 40px 60px;
+    box-shadow: 0 0 50px rgba(255, 204, 0, 0.3);
+}
+
+.start-content h2, .game-over-content h2 {
+    color: #ffcc00;
+    font-size: 32px;
+    margin-bottom: 20px;
+    text-shadow: 3px 3px 0 #cc6600;
+}
+
+.start-content p, .game-over-content p {
+    color: #aaccff;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.start-content input {
+    background: #0a0a2a;
+    border: 3px solid #4a4a8a;
+    color: #ffcc00;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    padding: 10px;
+    width: 200px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.start-content button, .game-over-content button {
+    background: #ffcc00;
+    color: #1a1a3a;
+    border: none;
+    padding: 12px 40px;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.start-content button:hover, .game-over-content button:hover {
+    background: #ffdd44;
+    transform: scale(1.05);
+}
+
+.start-content button:active, .game-over-content button:active {
+    transform: scale(0.95);
+}
+
+.tip {
+    color: #666699 !important;
+    font-size: 11px !important;
+    margin-top: 15px !important;
+}
+
+#gameOverStats {
+    color: #ffcc00 !important;
+    font-size: 16px !important;
+    line-height: 1.8;
+}

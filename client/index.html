@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>复古飞艇弹幕射击 - Airship Battle</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <h1>✈ AIRSHIP BATTLE ✈</h1>
+            <div class="stats-bar">
+                <span id="playerName">玩家: <input type="text" id="nameInput" maxlength="12" value="Player"></span>
+                <span id="score">得分: 0</span>
+                <span id="hp">生命: 100</span>
+                <span id="ping">延迟: --</span>
+                <span id="playersOnline">在线: 0</span>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="960" height="640"></canvas>
+        
+        <div class="game-footer">
+            <div class="controls-info">
+                <span>↑↓←→ / WASD: 移动</span>
+                <span>空格 / J: 射击</span>
+                <span>SHIFT: 加速</span>
+            </div>
+            <div class="status" id="status">
+                <span id="connectionStatus">连接中...</span>
+            </div>
+        </div>
+
+        <div class="leaderboard">
+            <h3>🏆 积分榜</h3>
+            <ol id="leaderboardList">
+                <li>加载中...</li>
+            </ol>
+        </div>
+
+        <div class="start-screen" id="startScreen">
+            <div class="start-content">
+                <h2>复古飞艇大战</h2>
+                <p>输入你的名字，加入战斗！</p>
+                <input type="text" id="startNameInput" maxlength="12" placeholder="输入昵称" value="Player">
+                <button id="startBtn">开始游戏</button>
+                <p class="tip">提示：最多支持 8 人同屏对战</p>
+            </div>
+        </div>
+
+        <div class="game-over-screen" id="gameOverScreen" style="display:none;">
+            <div class="game-over-content">
+                <h2 id="gameOverTitle">游戏结束</h2>
+                <p id="gameOverStats"></p>
+                <button id="respawnBtn">重新加入</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/network.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/collision.js"></script>
+    <script src="js/bullet.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
